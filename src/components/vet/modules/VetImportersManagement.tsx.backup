@@ -1,0 +1,616 @@
+import { useState } from 'react';
+import { Search, Eye, Edit, Trash2, Plus, X, Save, Calendar, Phone, MapPin, FileText, AlertCircle } from 'lucide-react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import { useAuth } from '../../../hooks/useAuth.tsx';
+import { useVetImporters } from '../../../hooks/useVetImporters';
+import toast from 'react-hot-toast';
+import { showToast } from '../../../lib/toastStyles';
+import PageHeader from '../../shared/PageHeader';
+import SearchInputWithPaste from '../../shared/SearchInputWithPaste';
+
+const importerSchema = z.object({
+  importer_name: z.string().min(1, 'اسم المستورد مطلوب'),
+  farm_location: z.string().optional(),
+  phone_number: z.string().optional(),
+  technical_report_expiry_date: z.string().optional(),
+  notes: z.string().optional(),
+  status: z.string().min(1, 'الحالة مطلوبة'),
+});
+
+type ImporterFormData = z.infer<typeof importerSchema>;
+
+interface Importer {
+  id: string;
+  importer_name: string;
+  farm_location: string | null;
+  phone_number: string | null;
+  technical_report_expiry_date: string | null;
+  notes: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export default function VetImportersManagement() {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showViewModal, setShowViewModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [selectedImporter, setSelectedImporter] = useState<Importer | null>(null);
+  const [importerToDelete, setImporterToDelete] = useState<string | null>(null);
+
+  const auth = useAuth();
+  const hasPermission = auth?.hasPermission || (() => false);
+  const { importers, loading, createImporter, updateImporter, deleteImporter } = useVetImporters();
+
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<ImporterFormData>({
+    resolver: zodResolver(importerSchema),
+    defaultValues: {
+      status: 'نشط'
+    }
+  });
+
+  const filteredImporters = importers.filter(importer => {
+    const matchesSearch =
+      importer.importer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (importer.farm_location || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (importer.phone_number || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (importer.status || '').toLowerCase().includes(searchTerm.toLowerCase());
+
+    return matchesSearch;
+  });
+
+  const handleAdd = () => {
+    reset({
+      importer_name: '',
+      farm_location: '',
+      phone_number: '',
+      technical_report_expiry_date: '',
+      notes: '',
+      status: 'نشط'
+    });
+    setShowAddModal(true);
+  };
+
+  const handleView = (importer: Importer) => {
+    setSelectedImporter(importer);
+    setShowViewModal(true);
+  };
+
+  const handleEdit = (importer: Importer) => {
+    setSelectedImporter(importer);
+    reset({
+      importer_name: importer.importer_name,
+      farm_location: importer.farm_location || '',
+      phone_number: importer.phone_number || '',
+      technical_report_expiry_date: importer.technical_report_expiry_date || '',
+      notes: importer.notes || '',
+      status: importer.status
+    });
+    setShowEditModal(true);
+  };
+
+  const handleDelete = (id: string) => {
+    setImporterToDelete(id);
+    setShowDeleteModal(true);
+  };
+
+  const onSubmitAdd = async (data: ImporterFormData) => {
+    try {
+      await createImporter({
+        ...data,
+        farm_location: data.farm_location || null,
+        phone_number: data.phone_number || null,
+        technical_report_expiry_date: data.technical_report_expiry_date || null,
+        notes: data.notes || null
+      });
+
+      showToast.success('تم إضافة المستورد بنجاح');
+      setShowAddModal(false);
+    } catch (error) {
+      console.error('Error adding importer:', error);
+      showToast.error('فشل في إضافة المستورد');
+    }
+  };
+
+  const onSubmitEdit = async (data: ImporterFormData) => {
+    if (!selectedImporter) return;
+
+    try {
+      await updateImporter(selectedImporter.id, {
+        ...data,
+        farm_location: data.farm_location || null,
+        phone_number: data.phone_number || null,
+        technical_report_expiry_date: data.technical_report_expiry_date || null,
+        notes: data.notes || null
+      });
+
+      showToast.success('تم تحديث بيانات المستورد بنجاح');
+      setShowEditModal(false);
+      setSelectedImporter(null);
+    } catch (error) {
+      console.error('Error updating importer:', error);
+      showToast.error('فشل في تحديث بيانات المستورد');
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!importerToDelete) return;
+
+    try {
+      await deleteImporter(importerToDelete);
+
+      showToast.success('تم حذف المستورد بنجاح');
+      setShowDeleteModal(false);
+      setImporterToDelete(null);
+    } catch (error) {
+      console.error('Error deleting importer:', error);
+      showToast.error('فشل في حذف المستورد');
+    }
+  };
+
+  const cancelDelete = () => {
+    setShowDeleteModal(false);
+    setImporterToDelete(null);
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'نشط':
+        return 'bg-green-100 text-green-800';
+      case 'غير نشط':
+        return 'bg-gray-100 text-gray-800';
+      default:
+        return 'bg-blue-100 text-blue-800';
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        icon={FileText}
+        title="بيانات المستوردين"
+        description="إدارة بيانات المستوردين والمزارع"
+      />
+
+      <div className="bg-white rounded-lg shadow p-6">
+        <div className="flex flex-col sm:flex-row gap-4 mb-6">
+          <div className="flex-1">
+            <SearchInputWithPaste
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="بحث بالاسم، الموقع، رقم الجوال، أو الحالة..."
+            />
+          </div>
+          {hasPermission('add_vet_procedure') && (
+            <button
+              onClick={handleAdd}
+              className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+            >
+              <Plus className="w-5 h-5" />
+              <span>إضافة مستورد</span>
+            </button>
+          )}
+        </div>
+
+        {loading ? (
+          <div className="text-center py-12">
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
+            <p className="mt-4 text-gray-600">جاري التحميل...</p>
+          </div>
+        ) : filteredImporters.length === 0 ? (
+          <div className="text-center py-12">
+            <FileText className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+            <p className="text-gray-600">لا توجد بيانات مستوردين</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    اسم المستورد
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    موقع المزرعة
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    رقم الجوال
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    تاريخ انتهاء التقرير الفني
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    الحالة
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    الإجراءات
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredImporters.map((importer) => (
+                  <tr key={importer.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {importer.importer_name}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {importer.farm_location || '-'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {importer.phone_number || '-'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {importer.technical_report_expiry_date
+                        ? new Date(importer.technical_report_expiry_date).toLocaleDateString('ar-SA')
+                        : '-'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(importer.status)}`}>
+                        {importer.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleView(importer)}
+                          className="text-blue-600 hover:text-blue-900"
+                          title="عرض"
+                        >
+                          <Eye className="w-5 h-5" />
+                        </button>
+                        {hasPermission('edit_vet_procedure') && (
+                          <button
+                            onClick={() => handleEdit(importer)}
+                            className="text-green-600 hover:text-green-900"
+                            title="تعديل"
+                          >
+                            <Edit className="w-5 h-5" />
+                          </button>
+                        )}
+                        {hasPermission('delete_vet_procedure') && (
+                          <button
+                            onClick={() => handleDelete(importer.id)}
+                            className="text-red-600 hover:text-red-900"
+                            title="حذف"
+                          >
+                            <Trash2 className="w-5 h-5" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+              <h3 className="text-xl font-bold text-gray-900">إضافة مستورد جديد</h3>
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            <form onSubmit={handleSubmit(onSubmitAdd)} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  اسم المستورد <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  {...register('importer_name')}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                />
+                {errors.importer_name && (
+                  <p className="mt-1 text-sm text-red-600">{errors.importer_name.message}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  موقع المزرعة
+                </label>
+                <input
+                  type="text"
+                  {...register('farm_location')}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  رقم الجوال
+                </label>
+                <input
+                  type="text"
+                  {...register('phone_number')}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  تاريخ انتهاء التقرير الفني
+                </label>
+                <input
+                  type="date"
+                  {...register('technical_report_expiry_date')}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  الحالة <span className="text-red-500">*</span>
+                </label>
+                <select
+                  {...register('status')}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                >
+                  <option value="نشط">نشط</option>
+                  <option value="غير نشط">غير نشط</option>
+                </select>
+                {errors.status && (
+                  <p className="mt-1 text-sm text-red-600">{errors.status.message}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  ملاحظات
+                </label>
+                <textarea
+                  {...register('notes')}
+                  rows={4}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="submit"
+                  className="flex-1 bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+                >
+                  <Save className="w-5 h-5" />
+                  <span>حفظ</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg hover:bg-gray-300 transition-colors"
+                >
+                  إلغاء
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showEditModal && selectedImporter && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+              <h3 className="text-xl font-bold text-gray-900">تعديل بيانات المستورد</h3>
+              <button
+                onClick={() => {
+                  setShowEditModal(false);
+                  setSelectedImporter(null);
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            <form onSubmit={handleSubmit(onSubmitEdit)} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  اسم المستورد <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  {...register('importer_name')}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                />
+                {errors.importer_name && (
+                  <p className="mt-1 text-sm text-red-600">{errors.importer_name.message}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  موقع المزرعة
+                </label>
+                <input
+                  type="text"
+                  {...register('farm_location')}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  رقم الجوال
+                </label>
+                <input
+                  type="text"
+                  {...register('phone_number')}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  تاريخ انتهاء التقرير الفني
+                </label>
+                <input
+                  type="date"
+                  {...register('technical_report_expiry_date')}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  الحالة <span className="text-red-500">*</span>
+                </label>
+                <select
+                  {...register('status')}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                >
+                  <option value="نشط">نشط</option>
+                  <option value="غير نشط">غير نشط</option>
+                </select>
+                {errors.status && (
+                  <p className="mt-1 text-sm text-red-600">{errors.status.message}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  ملاحظات
+                </label>
+                <textarea
+                  {...register('notes')}
+                  rows={4}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="submit"
+                  className="flex-1 bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+                >
+                  <Save className="w-5 h-5" />
+                  <span>حفظ التعديلات</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditModal(false);
+                    setSelectedImporter(null);
+                  }}
+                  className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg hover:bg-gray-300 transition-colors"
+                >
+                  إلغاء
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showViewModal && selectedImporter && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+              <h3 className="text-xl font-bold text-gray-900">تفاصيل المستورد</h3>
+              <button
+                onClick={() => {
+                  setShowViewModal(false);
+                  setSelectedImporter(null);
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-500 mb-1">اسم المستورد</label>
+                  <p className="text-lg font-semibold text-gray-900">{selectedImporter.importer_name}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-500 mb-1">الحالة</label>
+                  <span className={`px-3 py-1 inline-flex text-sm leading-5 font-semibold rounded-full ${getStatusColor(selectedImporter.status)}`}>
+                    {selectedImporter.status}
+                  </span>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-500 mb-1">موقع المزرعة</label>
+                  <p className="text-gray-900">{selectedImporter.farm_location || '-'}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-500 mb-1">رقم الجوال</label>
+                  <p className="text-gray-900">{selectedImporter.phone_number || '-'}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-500 mb-1">تاريخ انتهاء التقرير الفني</label>
+                  <p className="text-gray-900">
+                    {selectedImporter.technical_report_expiry_date
+                      ? new Date(selectedImporter.technical_report_expiry_date).toLocaleDateString('ar-SA')
+                      : '-'}
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-500 mb-1">تاريخ الإنشاء</label>
+                  <p className="text-gray-900">
+                    {new Date(selectedImporter.created_at).toLocaleDateString('ar-SA')}
+                  </p>
+                </div>
+              </div>
+              {selectedImporter.notes && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-500 mb-1">ملاحظات</label>
+                  <p className="text-gray-900 bg-gray-50 p-3 rounded-lg">{selectedImporter.notes}</p>
+                </div>
+              )}
+              <div className="pt-4">
+                <button
+                  onClick={() => {
+                    setShowViewModal(false);
+                    setSelectedImporter(null);
+                  }}
+                  className="w-full bg-gray-200 text-gray-700 py-2 rounded-lg hover:bg-gray-300 transition-colors"
+                >
+                  إغلاق
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-md w-full p-6">
+            <div className="flex items-center justify-center w-12 h-12 rounded-full bg-red-100 mx-auto mb-4">
+              <AlertCircle className="w-6 h-6 text-red-600" />
+            </div>
+            <h3 className="text-lg font-bold text-gray-900 text-center mb-2">تأكيد الحذف</h3>
+            <p className="text-gray-600 text-center mb-6">
+              هل أنت متأكد من حذف هذا المستورد؟ لا يمكن التراجع عن هذا الإجراء.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={confirmDelete}
+                className="flex-1 bg-red-600 text-white py-2 rounded-lg hover:bg-red-700 transition-colors"
+              >
+                حذف
+              </button>
+              <button
+                onClick={cancelDelete}
+                className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg hover:bg-gray-300 transition-colors"
+              >
+                إلغاء
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
